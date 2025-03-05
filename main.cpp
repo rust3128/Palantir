@@ -19,14 +19,14 @@ int main(int argc, char *argv[]) {
     Config config(nullptr, manualConfig);
 
     // 🔹 Виводимо параметри для перевірки
-    qDebug() << "📌 Database settings:";
+    qDebug() << "Database settings:";
     qDebug() << "Host:" << config.getDatabaseHost();
     qDebug() << "Port:" << config.getDatabasePort();
     qDebug() << "Database:" << config.getDatabaseName();
     qDebug() << "User:" << config.getDatabaseUser();
     qDebug() << "Password:" << config.getDatabasePassword();
 
-    qDebug() << "📌 Server settings:";
+    qDebug() << "Server settings:";
     qDebug() << "Server Port:" << config.getServerPort();
     qDebug() << "Log Level:" << config.getLogLevel();
 
