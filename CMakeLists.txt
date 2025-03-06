@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.19)
 project(Palantir LANGUAGES CXX)
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Core Sql)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Core Sql HttpServer)
 
 qt_standard_project_setup()
 
@@ -9,12 +9,14 @@ qt_add_executable(Palantir
     main.cpp
     config/config.ini
     config.h config.cpp
+    Server/server.h Server/server.cpp
 )
 
 target_link_libraries(Palantir
     PRIVATE
         Qt::Core
         Qt::Sql  # 🔹 Додано підтримку SQL
+        Qt::HttpServer  # 🔹 Підключаємо HttpServer
 )
 
 include(GNUInstallDirs)
