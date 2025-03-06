@@ -9,6 +9,9 @@
 
 using namespace std;
 
+// 🔹 Файл логування
+static QFile logFile;
+LogLevel Config::currentLogLevel = Debug;  // 🔹 За замовчуванням `Debug`
 /**
  * @brief Конструктор класу Config
  * @param parent Батьківський QObject
@@ -35,6 +38,8 @@ Config::Config(QObject *parent, bool manualConfig) : QObject(parent) {
 
     qDebug() << "Configuration from:" << QFileInfo(configPath).absoluteFilePath();
     settings = new QSettings(configPath, QSettings::IniFormat, this);
+
+
 }
 
 /**
@@ -197,3 +202,70 @@ int Config::getServerPort() const {
 QString Config::getLogLevel() const {
     return settings->value("Server/log_level", "debug").toString();
 }
+
+LogLevel Config::getLogLevelEnum() const
+{
+    QString level = getLogLevel().toLower();
+    if (level == "info") return Info;
+    if (level == "warning") return Warning;
+    if (level == "error") return Error;
+    return Debug;
+}
+
+/**
+ * @brief Ініціалізує логування у файл
+ */
+void Config::initLogging(LogLevel logLevel) {
+    QString logDirPath = QCoreApplication::applicationDirPath() + "/logs";
+    QDir logDir(logDirPath);
+    if (!logDir.exists()) {
+        logDir.mkpath(".");
+    }
+
+    QString logFilePath = logDirPath + "/palantir.log";
+    logFile.setFileName(logFilePath);
+    if (!logFile.open(QIODevice::Append | QIODevice::Text)) {
+        qCritical() << "Failed to open log file for writing!";
+        return;
+    }
+
+    // 🔹 Зберігаємо поточний рівень логування
+    currentLogLevel = logLevel;
+
+    // 🔹 Встановлюємо глобальний обробник повідомлень
+    qInstallMessageHandler(messageHandler);
+
+    qDebug() << "Logging initialized. Log level:" << logLevel;
+}
+
+void Config::messageHandler(QtMsgType type, const QMessageLogContext &, const QString &msg) {
+    QString logEntry = QString("[%1] %2\n")
+    .arg(QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss"))
+        .arg(msg);
+
+    // 🔹 Фільтруємо логи за рівнем `log_level`
+    bool shouldLog = false;
+    switch (type) {
+    case QtDebugMsg:
+        shouldLog = (currentLogLevel <= Debug);
+        break;
+    case QtInfoMsg:
+        shouldLog = (currentLogLevel <= Info);
+        break;
+    case QtWarningMsg:
+        shouldLog = (currentLogLevel <= Warning);
+        break;
+    case QtCriticalMsg:
+    case QtFatalMsg:
+        shouldLog = (currentLogLevel <= Error);
+        break;
+    }
+
+    if (shouldLog) {
+        QTextStream logStream(&logFile);
+        logStream << logEntry;
+        logStream.flush();
+        std::cout << logEntry.toStdString();
+    }
+}
+

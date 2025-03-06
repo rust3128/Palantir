@@ -18,13 +18,17 @@ int main(int argc, char *argv[]) {
     // 🔹 Створюємо об'єкт конфігурації
     Config config(nullptr, manualConfig);
 
+    // 🔹 Ініціалізуємо логування у файл
+    Config::initLogging(config.getLogLevelEnum());  // 🔹 Викликаємо ініціалізацію логування
+
+
     // 🔹 Виводимо параметри для перевірки
     qDebug() << "Database settings:";
     qDebug() << "Host:" << config.getDatabaseHost();
     qDebug() << "Port:" << config.getDatabasePort();
     qDebug() << "Database:" << config.getDatabaseName();
     qDebug() << "User:" << config.getDatabaseUser();
-    qDebug() << "Password:" << config.getDatabasePassword();
+    qDebug() << "Password:" << "********";
 
     qDebug() << "Server settings:";
     qDebug() << "Server Port:" << config.getServerPort();
