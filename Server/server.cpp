@@ -5,6 +5,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QSqlError>
+#include <QByteArray>
 
 /**
  * @brief Конструктор класу Server
@@ -61,10 +62,10 @@ void Server::setupRoutes() {
     httpServer.route("/status", [this]() { return handleStatus(); });
     qDebug() << "🔹 Route `/status` added.";
 
-    httpServer.route("/data", [this]() { return handleData(); });
-    qDebug() << "🔹 Route `/data` added.";
+    httpServer.route("/clients", [this]() -> QHttpServerResponse { return handleData(); });
+    qDebug() << "?? Route `/clients` added.";
 
-    httpServer.route("/data/<arg>", [this](const QString &clientId) {
+    httpServer.route("/clients/<arg>", [this](const QString &clientId) {
         return handleDataById(clientId.toInt());
     });
     qDebug() << "Route `/data/<id>` added.";
@@ -74,18 +75,24 @@ void Server::setupRoutes() {
  * @brief Обробляє запит `/status`, повертає JSON
  * @return JSON-відповідь { "status": "ok" }
  */
-QByteArray Server::handleStatus() {
+QHttpServerResponse Server::handleStatus() {
     QJsonObject response;
     response["status"] = "ok";
-    return QJsonDocument(response).toJson();
+    QByteArray jsonData = QJsonDocument(response).toJson(QJsonDocument::Compact);
+
+    QHttpServerResponse httpResponse("application/json; charset=utf-8", jsonData);
+    return httpResponse;
 }
 
-
-QByteArray Server::handleData() {
+/**
+ * @brief Обробляє запит `/clients`, повертає JSON
+ * @return JSON-відповідь { "id": "Clent Name" }
+ */
+QHttpServerResponse Server::handleData() {
     QSqlQuery query(db);
     if (!query.exec("SELECT client_id, client_name FROM clients_list")) {
-        qCritical() << "❌ Database query failed:" << query.lastError().text();
-        return R"({"error": "Database query failed"})";
+        qCritical() << "? Database query failed:" << query.lastError().text();
+        return QHttpServerResponse("application/json", QByteArray(R"({"error": "Database query failed"})"));
     }
 
     QJsonArray results;
@@ -98,26 +105,43 @@ QByteArray Server::handleData() {
 
     QJsonObject response;
     response["data"] = results;
-    return QJsonDocument(response).toJson();
+
+    QByteArray jsonData = QJsonDocument(response).toJson(QJsonDocument::Compact);
+
+    // Створюємо коректну HTTP-відповідь із заголовком UTF-8
+    QHttpServerResponse httpResponse("application/json; charset=utf-8", jsonData);
+
+    return httpResponse;
 }
 
-QByteArray Server::handleDataById(int clientId) {
+
+    /**
+ * @brief Обробляє запит `/clients/<arg>`, <arg> - код клієнта повертає JSON
+ * @return JSON-відповідь { "id": "Clent Name" }
+ */
+
+QHttpServerResponse Server::handleDataById(int clientId) {
     QSqlQuery query(db);
     query.prepare("SELECT client_id, client_name FROM clients_list WHERE client_id = :id");
     query.bindValue(":id", clientId);
 
     if (!query.exec()) {
         qCritical() << "Database query failed:" << query.lastError().text();
-        return R"({"error": "Database query failed"})";
+        return QHttpServerResponse("application/json", QByteArray(R"({"error": "Database query failed"})"));
     }
 
     if (!query.next()) {
-        return R"({"error": "Client not found"})";
+        return QHttpServerResponse("application/json", QByteArray(R"({"error": "Client not found"})"));
     }
 
-    QJsonObject obj;
-    obj["id"] = query.value(0).toInt();
-    obj["name"] = query.value(1).toString();
+    QJsonObject response;
 
-    return QJsonDocument(obj).toJson();
+//    QJsonObject obj;
+    response["id"] = query.value(0).toInt();
+    response["name"] = query.value(1).toString();
+
+    QByteArray jsonData = QJsonDocument(response).toJson(QJsonDocument::Compact);
+
+    QHttpServerResponse httpResponse("application/json; charset=utf-8", jsonData);
+    return httpResponse;
 }

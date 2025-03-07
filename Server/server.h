@@ -21,9 +21,10 @@ private:
 
     bool connectToDatabase();  // 🔹 Метод для підключення до бази
     void setupRoutes();  // 🔹 Налаштування всіх маршрутів
-    QByteArray handleStatus();                  // 🔹 Обробка `/status`
-    QByteArray handleData();                    // 🔹 Обробка `/data`
-    QByteArray handleDataById(int clientId);    // 🔹 Обробка `/data/<id>`
+
+    QHttpServerResponse handleStatus();                  // 🔹 Обробка `/status`
+    QHttpServerResponse handleData();                    // 🔹 Обробка `/data`
+    QHttpServerResponse handleDataById(int clientId);    // 🔹 Обробка `/data/<id>`
 };
 
 #endif // SERVER_H
