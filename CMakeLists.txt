@@ -11,6 +11,7 @@ qt_add_executable(Palantir
     config.h config.cpp
     Server/server.h Server/server.cpp
     Docs/api.md
+    Server/criptpass.cpp Server/criptpass.h Server/qaesencryption.cpp Server/qaesencryption.h
 
 )
 

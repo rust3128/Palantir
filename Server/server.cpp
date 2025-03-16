@@ -1,5 +1,6 @@
 
 #include "server.h"
+#include "criptpass.h"
 #include <QDebug>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -7,14 +8,7 @@
 #include <QSqlError>
 #include <QByteArray>
 
-//Параметри підключення до бази кліента
-struct ClientDBParams {
-    QString host;
-    int port;
-    QString database;
-    QString username;
-    QString password;
-};
+
 
 
 /**
@@ -102,6 +96,17 @@ QHttpServerResponse Server::handleTerminalInfo(const QHttpServerRequest &request
     int clientId = query.queryItemValue("client_id").toInt();
     int terminalId = query.queryItemValue("terminal_id").toInt();
 
+    // ?? Отримуємо параметри підключення до БД клієнта
+    auto clientDbParams = getClientDBParams(clientId);
+
+    if (!clientDbParams.has_value()) {
+        qWarning() << "? Не вдалося отримати параметри БД клієнта!";
+        return QHttpServerResponse("application/json", R"({"error": "Failed to get client DB parameters"})");
+    }
+
+    qDebug() << "? Параметри отримано:" << clientDbParams->server << clientDbParams->database;
+
+
     QSqlQuery sqlQuery(db);
     sqlQuery.prepare(R"(
         SELECT c.client_name, t.terminal_id, t.adress, t.phone
@@ -121,6 +126,8 @@ QHttpServerResponse Server::handleTerminalInfo(const QHttpServerRequest &request
     if (!sqlQuery.next()) {
         return QHttpServerResponse("application/json", R"({"error": "Terminal not found"})");
     }
+
+
 
     QJsonObject response;
     response["client_name"] = sqlQuery.value("client_name").toString();
@@ -215,7 +222,7 @@ QHttpServerResponse Server::handleDataById(int clientId) {
  * @param clientID ID клієнта
  * @return std::optional<ClientDBParams> - Параметри підключення або порожній об'єкт, якщо не вдалося отримати дані
  */
-std::optional<ClientDBParams> getClientDBParams(int clientID) {
+std::optional<ClientDBParams> Server::getClientDBParams(int clientID) {
     QSqlQuery query;
     query.prepare("SELECT client_db_server, client_db_port, client_db_file, "
                   "client_db_user, client_db_pass FROM clients_settings WHERE client_id = :clientID");
@@ -232,17 +239,22 @@ std::optional<ClientDBParams> getClientDBParams(int clientID) {
     }
 
     ClientDBParams params;
-    params.host = query.value(0).toString();
+    params.server = query.value(0).toString();
     params.port = query.value(1).toInt();
     params.database = query.value(2).toString();
     params.username = query.value(3).toString();
-    params.password = query.value(4).toString();
+    // ?? Дешифруємо пароль перед збереженням
+    CriptPass criptPass;
+    QString encryptedPass = query.value(4).toString();
+    params.password = criptPass.decryptPassword(encryptedPass);
 
     qInfo() << "? Отримані параметри підключення для client_id =" << clientID
-            << "\n  Сервер:" << params.host
+            << "\n  Сервер:" << params.server
             << "\n  Порт:" << params.port
             << "\n  Файл БД:" << params.database
-            << "\n  Користувач:" << params.username;
+            << "\n  Користувач:" << params.username
+            << "\n  Пароль:" << params.password;
 
     return params;
 }
+

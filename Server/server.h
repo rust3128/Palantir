@@ -5,7 +5,17 @@
 #include <QHttpServer>
 #include <QSqlDatabase>
 #include <QSqlQuery>
+#include <optional>
 #include "../config.h"
+
+// Структура з параметрами підключення до бази клієнта
+struct ClientDBParams {
+    QString server;
+    int port;
+    QString database;
+    QString username;
+    QString password;
+};
 
 class Server : public QObject {
     Q_OBJECT
@@ -26,6 +36,7 @@ private:
     QHttpServerResponse handleData();                    // 🔹 Обробка `/data`
     QHttpServerResponse handleDataById(int clientId);    // 🔹 Обробка `/data/<id>`
     QHttpServerResponse handleTerminalInfo(const QHttpServerRequest &request); ///terminal_info
+    std::optional<ClientDBParams> getClientDBParams(int clientID);
 };
 
 #endif // SERVER_H
