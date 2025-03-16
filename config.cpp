@@ -216,6 +216,13 @@ LogLevel Config::getLogLevelEnum() const
  * @brief Ініціалізує логування у файл
  */
 void Config::initLogging(LogLevel logLevel) {
+
+    static bool loggingInitialized = false;
+    if (loggingInitialized) {
+        return;
+    }
+    loggingInitialized = true;
+
     QString logDirPath = QCoreApplication::applicationDirPath() + "/logs";
     QDir logDir(logDirPath);
     if (!logDir.exists()) {
@@ -224,18 +231,27 @@ void Config::initLogging(LogLevel logLevel) {
 
     QString logFilePath = logDirPath + "/palantir.log";
     logFile.setFileName(logFilePath);
+
     if (!logFile.open(QIODevice::Append | QIODevice::Text)) {
-        qCritical() << "Failed to open log file for writing!";
+        qCritical() << "❌ Не вдалося відкрити файл логів для запису!";
         return;
     }
 
-    // 🔹 Зберігаємо поточний рівень логування
-    currentLogLevel = logLevel;
+    // 🔹 Оновлюємо обробник логування
+    qInstallMessageHandler([](QtMsgType type, const QMessageLogContext &, const QString &msg) {
+        QString logEntry = QString("[%1] %2")
+        .arg(QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss"))
+            .arg(msg);
 
-    // 🔹 Встановлюємо глобальний обробник повідомлень
-    qInstallMessageHandler(messageHandler);
+        QTextStream logStream(&logFile);
+        logStream << logEntry << "\n";  // 🔹 Запис у файл
+        logStream.flush();
 
-    qDebug() << "Logging initialized. Log level:" << logLevel;
+        QTextStream consoleStream(stdout);
+        consoleStream << logEntry << Qt::endl;  // 🔹 Вивід у консоль
+    });
+
+    qDebug() << "✅ Логування ініціалізовано. Файл логів:" << logFilePath;
 }
 
 void Config::messageHandler(QtMsgType type, const QMessageLogContext &, const QString &msg) {

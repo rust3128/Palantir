@@ -3,28 +3,18 @@
 #include "config.h"
 #include "Server/server.h"
 
+
 int main(int argc, char *argv[]) {
     QCoreApplication a(argc, argv);
 
-    // 🔹 Перевіряємо, чи передано аргумент `--config`
-    bool manualConfig = false;
-    for (int i = 1; i < argc; ++i) {
-        QString arg = argv[i];
-        if (arg == "--config") {
-            manualConfig = true;
-            qDebug() << "🔧 Manual configuration mode enabled!";
-        }
-    }
+    qInfo() << "✅ Palantir запущено! Перевіряємо параметри запуску...";
 
-    // 🔹 Створюємо об'єкт конфігурації
-    Config config(nullptr, manualConfig);
+    Config config;
+    Config::initLogging(config.getLogLevelEnum());
 
-    // 🔹 Ініціалізуємо логування у файл
-    Config::initLogging(config.getLogLevelEnum());  // 🔹 Викликаємо ініціалізацію логування
-
-    // 🔹 Створюємо та запускаємо сервер
+    qInfo() << "✅ Запуск у звичайному режимі...";
     Server server(&config);
     server.start();
 
-    return a.exec();
+    return a.exec(); // 🔹 Головний цикл обробки подій Qt
 }

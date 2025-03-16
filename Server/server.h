@@ -25,6 +25,7 @@ private:
     QHttpServerResponse handleStatus();                  // 🔹 Обробка `/status`
     QHttpServerResponse handleData();                    // 🔹 Обробка `/data`
     QHttpServerResponse handleDataById(int clientId);    // 🔹 Обробка `/data/<id>`
+    QHttpServerResponse handleTerminalInfo(const QHttpServerRequest &request); ///terminal_info
 };
 
 #endif // SERVER_H

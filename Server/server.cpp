@@ -7,6 +7,16 @@
 #include <QSqlError>
 #include <QByteArray>
 
+//Параметри підключення до бази кліента
+struct ClientDBParams {
+    QString host;
+    int port;
+    QString database;
+    QString username;
+    QString password;
+};
+
+
 /**
  * @brief Конструктор класу Server
  * @param config Вказівник на об'єкт конфігурації
@@ -69,17 +79,70 @@ void Server::setupRoutes() {
         return handleDataById(clientId.toInt());
     });
     qDebug() << "Route `/data/<id>` added.";
+
+    httpServer.route("/terminal_info", [this](const QHttpServerRequest &request) {
+        return handleTerminalInfo(request);
+    });
+    qDebug() << "✅ Route `/terminal_info` added.";
+
 }
+/**
+ * @brief Обробляє запит `/terminal_info`, виконує SQL-запит для отримання інформації про термінал
+ * @param request HTTP-запит з параметрами `client_id` та `terminal_id`
+ * @return JSON-відповідь з інформацією про термінал або повідомленням про помилку
+ */
+QHttpServerResponse Server::handleTerminalInfo(const QHttpServerRequest &request) {
+    QUrlQuery query(request.query());
+    qDebug() << "🔹 Запит отримано: /terminal_info";
+
+    if (!query.hasQueryItem("client_id") || !query.hasQueryItem("terminal_id")) {
+        return QHttpServerResponse("application/json", R"({"error": "Missing parameters"})");
+    }
+
+    int clientId = query.queryItemValue("client_id").toInt();
+    int terminalId = query.queryItemValue("terminal_id").toInt();
+
+    QSqlQuery sqlQuery(db);
+    sqlQuery.prepare(R"(
+        SELECT c.client_name, t.terminal_id, t.adress, t.phone
+        FROM terminals t
+        LEFT JOIN clients_list c ON c.client_id = t.client_id
+        WHERE t.client_id = :client_id AND t.terminal_id = :terminal_id
+    )");
+
+    sqlQuery.bindValue(":client_id", clientId);
+    sqlQuery.bindValue(":terminal_id", terminalId);
+
+    if (!sqlQuery.exec()) {
+        qWarning() << "❌ SQL Error:" << sqlQuery.lastError().text();
+        return QHttpServerResponse("application/json", R"({"error": "Database query failed"})");
+    }
+
+    if (!sqlQuery.next()) {
+        return QHttpServerResponse("application/json", R"({"error": "Terminal not found"})");
+    }
+
+    QJsonObject response;
+    response["client_name"] = sqlQuery.value("client_name").toString();
+    response["terminal_id"] = sqlQuery.value("terminal_id").toInt();
+    response["adress"] = sqlQuery.value("adress").toString();
+    response["phone"] = sqlQuery.value("phone").toString();
+
+    return QHttpServerResponse("application/json", QJsonDocument(response).toJson());
+}
+
+
 
 /**
  * @brief Обробляє запит `/status`, повертає JSON
  * @return JSON-відповідь { "status": "ok" }
  */
 QHttpServerResponse Server::handleStatus() {
+    qInfo() << "✅ Отримано запит на /status";
     QJsonObject response;
     response["status"] = "ok";
     QByteArray jsonData = QJsonDocument(response).toJson(QJsonDocument::Compact);
-
+    qInfo() << "✅ Відправляємо JSON-відповідь" << response;
     QHttpServerResponse httpResponse("application/json; charset=utf-8", jsonData);
     return httpResponse;
 }
@@ -144,4 +207,42 @@ QHttpServerResponse Server::handleDataById(int clientId) {
 
     QHttpServerResponse httpResponse("application/json; charset=utf-8", jsonData);
     return httpResponse;
+}
+
+
+/**
+ * @brief Отримує параметри підключення до бази даних клієнта
+ * @param clientID ID клієнта
+ * @return std::optional<ClientDBParams> - Параметри підключення або порожній об'єкт, якщо не вдалося отримати дані
+ */
+std::optional<ClientDBParams> getClientDBParams(int clientID) {
+    QSqlQuery query;
+    query.prepare("SELECT client_db_server, client_db_port, client_db_file, "
+                  "client_db_user, client_db_pass FROM clients_settings WHERE client_id = :clientID");
+    query.bindValue(":clientID", clientID);
+
+    if (!query.exec()) {
+        qCritical() << "? Помилка виконання SQL-запиту:" << query.lastError().text();
+        return std::nullopt;
+    }
+
+    if (!query.next()) {
+        qWarning() << "?? Немає даних для client_id =" << clientID;
+        return std::nullopt;
+    }
+
+    ClientDBParams params;
+    params.host = query.value(0).toString();
+    params.port = query.value(1).toInt();
+    params.database = query.value(2).toString();
+    params.username = query.value(3).toString();
+    params.password = query.value(4).toString();
+
+    qInfo() << "? Отримані параметри підключення для client_id =" << clientID
+            << "\n  Сервер:" << params.host
+            << "\n  Порт:" << params.port
+            << "\n  Файл БД:" << params.database
+            << "\n  Користувач:" << params.username;
+
+    return params;
 }
