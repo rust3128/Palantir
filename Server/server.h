@@ -31,12 +31,18 @@ private:
 
     bool connectToDatabase();  // 🔹 Метод для підключення до бази
     void setupRoutes();  // 🔹 Налаштування всіх маршрутів
+    QSqlDatabase clientDB; // підключення до БД клієнта
+    std::optional<QString> connectToClientDatabase(const ClientDBParams &params);
+    QJsonArray getDispensersInfo(QSqlDatabase &clientDB, int terminalId);
+    QJsonArray getPumpsInfo(QSqlDatabase &clientDB, int terminalId);
+
 
     QHttpServerResponse handleStatus();                  // 🔹 Обробка `/status`
     QHttpServerResponse handleData();                    // 🔹 Обробка `/data`
     QHttpServerResponse handleDataById(int clientId);    // 🔹 Обробка `/data/<id>`
     QHttpServerResponse handleTerminalInfo(const QHttpServerRequest &request); ///terminal_info
     std::optional<ClientDBParams> getClientDBParams(int clientID);
+    std::optional<QSqlDatabase> connectToClientDB(const ClientDBParams& params);
 };
 
 #endif // SERVER_H
