@@ -34,7 +34,7 @@ private:
     QSqlDatabase clientDB; // підключення до БД клієнта
     std::optional<QString> connectToClientDatabase(const ClientDBParams &params);
     QJsonArray getDispensersInfo(QSqlDatabase &clientDB, int terminalId);
-    QJsonArray getPumpsInfo(QSqlDatabase &clientDB, int terminalId);
+    QJsonObject getPumpsInfo(QSqlDatabase &clientDB, int terminalId);
 
 
     QHttpServerResponse handleStatus();                  // 🔹 Обробка `/status`

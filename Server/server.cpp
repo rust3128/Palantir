@@ -92,7 +92,7 @@ QHttpServerResponse Server::handleTerminalInfo(const QHttpServerRequest &request
     qDebug() << "📥 Запит отримано: /terminal_info";
 
     if (!query.hasQueryItem("client_id") || !query.hasQueryItem("terminal_id")) {
-        return QHttpServerResponse("application/json", R"({\"error\": \"Missing parameters\"})");
+        return QHttpServerResponse("application/json", R"({"error": "Missing parameters"})");
     }
 
     int clientId = query.queryItemValue("client_id").toInt();
@@ -100,26 +100,38 @@ QHttpServerResponse Server::handleTerminalInfo(const QHttpServerRequest &request
 
     // 🔹 Отримуємо параметри підключення до БД клієнта
     auto clientDbParams = getClientDBParams(clientId);
-
     if (!clientDbParams.has_value()) {
         qWarning() << "⚠️ Не вдалося отримати параметри БД клієнта!";
-        return QHttpServerResponse("application/json", R"({\"error\": \"Failed to get client DB parameters\"})");
+        return QHttpServerResponse("application/json", R"({"error": "Failed to get client DB parameters"})");
     }
 
     // 🔹 Підключаємося до бази даних клієнта
     if (!connectToClientDatabase(clientDbParams.value())) {
         qWarning() << "⚠️ Помилка підключення до БД клієнта!";
-        return QHttpServerResponse("application/json", R"({\"error\": \"Failed to connect to client database\"})");
+        return QHttpServerResponse("application/json", R"({"error": "Failed to connect to client database"})");
     }
 
     QString connectionName = QString("clientDB_%1").arg(clientDbParams->server);
     QSqlDatabase clientDB = QSqlDatabase::database(connectionName);
 
-    // 🔹 Виконуємо запит до БД клієнта, отримуємо інформацію про ТРК (поки тільки кількість для тесту)
+    // 🔹 Отримуємо ТРК та пістолети
     QJsonArray dispensersInfo = getDispensersInfo(clientDB, terminalId);
-    QJsonArray pumpsInfo = getPumpsInfo(clientDB, terminalId);
+    QJsonObject pumpsGroupedByDispenser = getPumpsInfo(clientDB, terminalId);
 
-    // 🔹 Виконуємо запит у основній БД Palantir
+    // 🔹 Додаємо `pumps_info` у відповідні `dispenser_id`
+    QJsonArray updatedDispensersInfo;
+    for (const QJsonValue &dispenserVal : dispensersInfo) {
+        QJsonObject dispenserObj = dispenserVal.toObject();
+        int dispenserId = dispenserObj["dispenser_id"].toInt();
+
+        if (pumpsGroupedByDispenser.contains(QString::number(dispenserId))) {
+            dispenserObj["pumps_info"] = pumpsGroupedByDispenser[QString::number(dispenserId)];
+        }
+
+        updatedDispensersInfo.append(dispenserObj);
+    }
+
+    // 🔹 Отримуємо загальну інформацію про АЗС
     QSqlQuery sqlQuery(db);
     sqlQuery.prepare(R"(
         SELECT c.client_name, t.terminal_id, t.adress, t.phone
@@ -127,13 +139,12 @@ QHttpServerResponse Server::handleTerminalInfo(const QHttpServerRequest &request
         LEFT JOIN clients_list c ON c.client_id = t.client_id
         WHERE t.client_id = :client_id AND t.terminal_id = :terminal_id
     )");
-
     sqlQuery.bindValue(":client_id", clientId);
     sqlQuery.bindValue(":terminal_id", terminalId);
 
     if (!sqlQuery.exec() || !sqlQuery.next()) {
         qWarning() << "⚠️ Помилка запиту до основної БД:" << sqlQuery.lastError().text();
-        return QHttpServerResponse("application/json", R"({\"error\": \"Terminal not found\"})");
+        return QHttpServerResponse("application/json", R"({"error": "Terminal not found"})");
     }
 
     // 🔹 Формуємо відповідь
@@ -142,14 +153,12 @@ QHttpServerResponse Server::handleTerminalInfo(const QHttpServerRequest &request
     response["terminal_id"] = sqlQuery.value("terminal_id").toInt();
     response["adress"] = sqlQuery.value("adress").toString();
     response["phone"] = sqlQuery.value("phone").toString();
-
-    // 🔹 Додаємо інформацію про підключення і кількість ТРК для перевірки
     response["client_db_connection"] = "OK";
-    response["dispensers_info"] = dispensersInfo;
-    response["pumps_count"] = pumpsInfo.size();
+    response["dispensers_info"] = updatedDispensersInfo; // ?? ТРК + пістолети
 
     return QHttpServerResponse("application/json", QJsonDocument(response).toJson());
 }
+
 
 
 
@@ -347,8 +356,8 @@ QJsonArray Server::getDispensersInfo(QSqlDatabase &clientDB, int terminalId) {
     return dispensers;
 }
 
-QJsonArray Server::getPumpsInfo(QSqlDatabase &clientDB, int terminalId) {
-    QJsonArray pumpsArray;
+QJsonObject Server::getPumpsInfo(QSqlDatabase &clientDB, int terminalId) {
+    QJsonObject pumpsGroupedByDispenser;
 
     QString queryStr = QString(R"(
         SELECT t.dispenser_id, t.trk_id AS pump_id, t.tank_id, f.shortname
@@ -363,21 +372,25 @@ QJsonArray Server::getPumpsInfo(QSqlDatabase &clientDB, int terminalId) {
 
     QSqlQuery query(clientDB);
     if (!query.exec(queryStr)) {
-        qWarning() << "?? Помилка запиту інформації по пістолетам:" << query.lastError().text();
-        qWarning() << "?? SQL-запит:" << queryStr;
-        return pumpsArray;
+        qWarning() << "❌ Помилка запиту інформації по пістолетам:" << query.lastError().text();
+        qWarning() << "❌ SQL-запит:" << queryStr;
+        return pumpsGroupedByDispenser;
     }
 
     while (query.next()) {
+        int dispenserId = query.value("dispenser_id").toInt();
         QJsonObject pump;
-        pump["dispenser_id"] = query.value("dispenser_id").toInt();
         pump["pump_id"] = query.value("pump_id").toInt();
         pump["tank_id"] = query.value("tank_id").toInt();
         pump["fuel_shortname"] = query.value("shortname").toString();
+
+        // Додаємо пістолет до відповідного ТРК
+        QJsonArray pumpsArray = pumpsGroupedByDispenser[QString::number(dispenserId)].toArray();
         pumpsArray.append(pump);
+        pumpsGroupedByDispenser[QString::number(dispenserId)] = pumpsArray;
     }
 
-    qDebug() << "? Отримано інформацію про пістолети, кількість записів:" << pumpsArray.size();
-    return pumpsArray;
+    qDebug() << "✅ Отримано інформацію про пістолети, кількість записів:" << pumpsGroupedByDispenser.size();
+    return pumpsGroupedByDispenser;
 }
 
