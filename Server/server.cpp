@@ -183,7 +183,7 @@ QHttpServerResponse Server::handleStatus() {
  */
 QHttpServerResponse Server::handleData() {
     QSqlQuery query(db);
-    if (!query.exec("SELECT client_id, client_name FROM clients_list")) {
+    if (!query.exec("SELECT client_id, client_name FROM clients_list WHERE isactive=1")) {
         qCritical() << "? Database query failed:" << query.lastError().text();
         return QHttpServerResponse("application/json", QByteArray(R"({"error": "Database query failed"})"));
     }
