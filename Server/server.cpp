@@ -98,6 +98,35 @@ QHttpServerResponse Server::handleTerminalInfo(const QHttpServerRequest &request
     int clientId = query.queryItemValue("client_id").toInt();
     int terminalId = query.queryItemValue("terminal_id").toInt();
 
+    // 🔹 Спочатку перевіряємо, чи є термінал у головній базі Palantir
+    QSqlQuery sqlQuery(db);
+    sqlQuery.prepare(R"(
+        SELECT c.client_name, t.terminal_id, t.adress, t.phone
+        FROM terminals t
+        LEFT JOIN clients_list c ON c.client_id = t.client_id
+        WHERE t.client_id = :client_id AND t.terminal_id = :terminal_id
+    )");
+    sqlQuery.bindValue(":client_id", clientId);
+    sqlQuery.bindValue(":terminal_id", terminalId);
+
+    if (!sqlQuery.exec()) {
+        qWarning() << "⚠️ Помилка запиту до основної БД:" << sqlQuery.lastError().text();
+        return QHttpServerResponse("application/json", R"({"error": "Database query failed"})");
+    }
+
+    // 🔹 Якщо термінал не знайдено в базі — повертаємо помилку
+    if (!sqlQuery.next()) {
+        qWarning() << "❌ Термінал не знайдено! client_id =" << clientId << ", terminal_id =" << terminalId;
+        return QHttpServerResponse("application/json", R"({"error": "Terminal not found"})");
+    }
+
+    // 🔹 Формуємо базову відповідь із даними про АЗС
+    QJsonObject response;
+    response["client_name"] = sqlQuery.value("client_name").toString();
+    response["terminal_id"] = sqlQuery.value("terminal_id").toInt();
+    response["adress"] = sqlQuery.value("adress").toString();
+    response["phone"] = sqlQuery.value("phone").toString();
+
     // 🔹 Отримуємо параметри підключення до БД клієнта
     auto clientDbParams = getClientDBParams(clientId);
     if (!clientDbParams.has_value()) {
@@ -131,33 +160,13 @@ QHttpServerResponse Server::handleTerminalInfo(const QHttpServerRequest &request
         updatedDispensersInfo.append(dispenserObj);
     }
 
-    // 🔹 Отримуємо загальну інформацію про АЗС
-    QSqlQuery sqlQuery(db);
-    sqlQuery.prepare(R"(
-        SELECT c.client_name, t.terminal_id, t.adress, t.phone
-        FROM terminals t
-        LEFT JOIN clients_list c ON c.client_id = t.client_id
-        WHERE t.client_id = :client_id AND t.terminal_id = :terminal_id
-    )");
-    sqlQuery.bindValue(":client_id", clientId);
-    sqlQuery.bindValue(":terminal_id", terminalId);
-
-    if (!sqlQuery.exec() || !sqlQuery.next()) {
-        qWarning() << "⚠️ Помилка запиту до основної БД:" << sqlQuery.lastError().text();
-        return QHttpServerResponse("application/json", R"({"error": "Terminal not found"})");
-    }
-
-    // 🔹 Формуємо відповідь
-    QJsonObject response;
-    response["client_name"] = sqlQuery.value("client_name").toString();
-    response["terminal_id"] = sqlQuery.value("terminal_id").toInt();
-    response["adress"] = sqlQuery.value("adress").toString();
-    response["phone"] = sqlQuery.value("phone").toString();
+    // 🔹 Додаємо дані про підключення до БД клієнта
     response["client_db_connection"] = "OK";
-    response["dispensers_info"] = updatedDispensersInfo; // ?? ТРК + пістолети
+    response["dispensers_info"] = updatedDispensersInfo;
 
     return QHttpServerResponse("application/json", QJsonDocument(response).toJson());
 }
+
 
 
 
