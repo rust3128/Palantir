@@ -41,6 +41,10 @@ private:
     QHttpServerResponse handleData();                    // 🔹 Обробка `/data`
     QHttpServerResponse handleDataById(int clientId);    // 🔹 Обробка `/data/<id>`
     QHttpServerResponse handleTerminalInfo(const QHttpServerRequest &request); ///terminal_info
+    QHttpServerResponse handlePosInfo(const QHttpServerRequest &request);       //pos_info
+    QHttpServerResponse handleReservoirsInfo(const QHttpServerRequest &request); //Tank info
+    QHttpServerResponse handleAzsList(const QHttpServerRequest &request);       //AZS list
+    QJsonArray getPosInfo(QSqlDatabase &clientDB, int terminalId);
     std::optional<ClientDBParams> getClientDBParams(int clientID);
     std::optional<QSqlDatabase> connectToClientDB(const ClientDBParams& params);
 };

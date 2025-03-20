@@ -78,7 +78,133 @@ void Server::setupRoutes() {
         return handleTerminalInfo(request);
     });
     qDebug() << "✅ Route `/terminal_info` added.";
+    httpServer.route("/pos_info", QHttpServerRequest::Method::Get,
+                 [this](const QHttpServerRequest &request) {
+                     return handlePosInfo(request);
+                 });
+    httpServer.route("/reservoirs_info", QHttpServerRequest::Method::Get,
+                     [this](const QHttpServerRequest &request) {
+                         return handleReservoirsInfo(request);
+                     });
+    httpServer.route("/azs_list", QHttpServerRequest::Method::Get,
+                     [this](const QHttpServerRequest &request) {
+                         return handleAzsList(request);
+                     });
 
+
+}
+
+QHttpServerResponse Server::handleAzsList(const QHttpServerRequest &request) {
+    QUrlQuery queryParams(request.query());  // ✅ Перейменовано для уникнення конфлікту
+    qDebug() << "📥 Запит отримано: /azs_list";
+
+    if (!queryParams.hasQueryItem("client_id")) {
+        return QHttpServerResponse("application/json", R"({"error": "Missing client_id parameter"})");
+    }
+
+    int clientId = queryParams.queryItemValue("client_id").toInt();
+
+    QSqlDatabase db = QSqlDatabase::database();  // Використовуємо основну базу
+    if (!db.isOpen()) {
+        qWarning() << "⚠️ Основна база не підключена!";
+        return QHttpServerResponse("application/json", R"({"error": "Database is not connected"})");
+    }
+
+    QSqlQuery sqlQuery(db);  // ✅ Перейменовано для уникнення конфлікту
+    QString sql = QString(R"(
+        SELECT t.terminal_id, t.name
+        FROM terminals t
+        WHERE t.client_id = %1
+        ORDER BY t.terminal_id;
+    )").arg(clientId);
+
+    if (!sqlQuery.exec(sql)) {
+        qWarning() << "❌ Помилка SQL-запиту:" << sqlQuery.lastError().text();
+        return QHttpServerResponse("application/json", R"({"error": "Database query failed"})");
+    }
+
+    QJsonArray azsArray;
+    while (sqlQuery.next()) {
+        QJsonObject azsObj;
+        azsObj["terminal_id"] = sqlQuery.value("terminal_id").toInt();
+        azsObj["name"] = sqlQuery.value("name").toString();
+        azsArray.append(azsObj);
+    }
+
+    QJsonObject response;
+    response["azs_list"] = azsArray;
+
+    return QHttpServerResponse("application/json", QJsonDocument(response).toJson());
+}
+
+
+
+QHttpServerResponse Server::handleReservoirsInfo(const QHttpServerRequest &request) {
+    QUrlQuery query(request.query());
+    qDebug() << "📥 Отримано запит: /reservoirs_info";
+
+    // Перевіряємо наявність параметрів
+    if (!query.hasQueryItem("client_id") || !query.hasQueryItem("terminal_id")) {
+        return QHttpServerResponse("application/json", R"({"error": "Missing parameters"})");
+    }
+
+    int clientId = query.queryItemValue("client_id").toInt();
+    int terminalId = query.queryItemValue("terminal_id").toInt();
+
+    // 🔹 Отримуємо параметри підключення до БД клієнта
+    auto clientDbParams = getClientDBParams(clientId);
+    if (!clientDbParams.has_value()) {
+        qWarning() << "⚠️ Не вдалося отримати параметри БД клієнта!";
+        return QHttpServerResponse("application/json", R"({"error": "Failed to get client DB parameters"})");
+    }
+
+    // 🔹 Підключаємося до бази даних клієнта
+    if (!connectToClientDatabase(clientDbParams.value())) {
+        qWarning() << "⚠️ Помилка підключення до БД клієнта!";
+        return QHttpServerResponse("application/json", R"({"error": "Failed to connect to client database"})");
+    }
+
+    QString connectionName = QString("clientDB_%1").arg(clientDbParams->server);
+    QSqlDatabase clientDB = QSqlDatabase::database(connectionName);
+
+    // 🔹 Виконуємо SQL-запит
+    QSqlQuery sqlQuery(clientDB);
+    sqlQuery.prepare(R"(
+        SELECT t.tank_id, t.fuel_id, f.shortname, f.name, t.maxvalue, t.minvalue,
+               t.deadmax, t.deadmin, t.tubeamount
+        FROM tanks t
+        LEFT JOIN fuels f ON f.fuel_id = t.fuel_id
+        WHERE t.terminal_id = :terminalId AND t.isactive = 'T'
+        ORDER BY t.tank_id;
+    )");
+    sqlQuery.bindValue(":terminalId", terminalId);
+
+    if (!sqlQuery.exec()) {
+        qWarning() << "❌ Помилка виконання SQL-запиту:" << sqlQuery.lastError().text();
+        return QHttpServerResponse("application/json", R"({"error": "Database query failed"})");
+    }
+
+    // 🔹 Формуємо JSON-відповідь
+    QJsonArray reservoirsArray;
+    while (sqlQuery.next()) {
+        QJsonObject tankObj;
+        tankObj["tank_id"] = sqlQuery.value("tank_id").toInt();
+        tankObj["fuel_id"] = sqlQuery.value("fuel_id").toInt();
+        tankObj["shortname"] = sqlQuery.value("shortname").toString();
+        tankObj["name"] = sqlQuery.value("name").toString();
+        tankObj["maxvalue"] = sqlQuery.value("maxvalue").toInt();
+        tankObj["minvalue"] = sqlQuery.value("minvalue").toInt();
+        tankObj["deadmax"] = sqlQuery.value("deadmax").toInt();
+        tankObj["deadmin"] = sqlQuery.value("deadmin").toInt();
+        tankObj["tubeamount"] = sqlQuery.value("tubeamount").toInt();
+        reservoirsArray.append(tankObj);
+    }
+
+    // 🔹 Формуємо фінальну відповідь
+    QJsonObject response;
+    response["reservoirs_info"] = reservoirsArray;
+
+    return QHttpServerResponse("application/json", QJsonDocument(response).toJson());
 }
 
 
@@ -169,7 +295,106 @@ QHttpServerResponse Server::handleTerminalInfo(const QHttpServerRequest &request
 
 
 
+/**
+ * @brief Виконує SQL-запит для отримання інформації про каси.
+ * @param clientDB Посилання на базу даних клієнта
+ * @param terminalId ID терміналу
+ * @return JSON-масив з інформацією про каси
+ */
+QHttpServerResponse Server::handlePosInfo(const QHttpServerRequest &request) {
+    QUrlQuery query(request.query());  // Змінна для параметрів запиту
+    qDebug() << "📥 Запит отримано: /pos_info";
 
+    if (!query.hasQueryItem("client_id") || !query.hasQueryItem("terminal_id")) {
+        return QHttpServerResponse("application/json", R"({"error": "Missing parameters"})");
+    }
+
+    int clientId = query.queryItemValue("client_id").toInt();
+    int terminalId = query.queryItemValue("terminal_id").toInt();
+
+    // 🔹 Отримуємо параметри підключення до БД клієнта
+    auto clientDbParams = getClientDBParams(clientId);
+    if (!clientDbParams.has_value()) {
+        qWarning() << "⚠️ Не вдалося отримати параметри БД клієнта!";
+        return QHttpServerResponse("application/json", R"({"error": "Failed to get client DB parameters"})");
+    }
+
+    // 🔹 Підключаємося до бази даних клієнта
+    if (!connectToClientDatabase(clientDbParams.value())) {
+        qWarning() << "⚠️ Помилка підключення до БД клієнта!";
+        return QHttpServerResponse("application/json", R"({"error": "Failed to connect to client database"})");
+    }
+
+    QString connectionName = QString("clientDB_%1").arg(clientDbParams->server);
+    QSqlDatabase clientDB = QSqlDatabase::database(connectionName);
+
+    // 🔹 Виконуємо SQL-запит
+    QSqlQuery sqlQuery(clientDB);  // ✅ Оновлена назва змінної
+    QString sql = QString(R"(
+        WITH RankedVersions AS (
+            SELECT
+                a.terminal_id,
+                a.pos_id,
+                a.pos_version,
+                a.db_version,
+                a.posterm_version,
+                ROW_NUMBER() OVER (PARTITION BY a.terminal_id, a.pos_id ORDER BY a.build_date DESC) AS rn
+            FROM APP_VERSION a
+        )
+        SELECT
+            z.pos_id,
+            z.factorynumber,
+            z.regnumber,
+            NULLIF(v.pos_version, '') AS pos_version,
+            NULLIF(v.db_version, '') AS db_version,
+            NULLIF(v.posterm_version, '') AS posterm_version
+        FROM ZNUMBERS z
+        LEFT JOIN RankedVersions v
+            ON z.terminal_id = v.terminal_id
+            AND z.pos_id = v.pos_id
+            AND v.rn = 1
+        WHERE z.terminal_id = %1
+          AND z.shift_id = (
+              SELECT MAX(shift_id)
+              FROM SHIFTS
+              WHERE terminal_id = %1
+                AND isclose = 'T'
+          )
+        ORDER BY z.pos_id;
+    )").arg(terminalId);
+
+    if (!sqlQuery.exec(sql)) {
+        qWarning() << "❌ Помилка виконання SQL-запиту:" << sqlQuery.lastError().text();
+        return QHttpServerResponse("application/json", R"({"error": "Database query failed"})");
+    }
+
+    // 🔹 Формуємо JSON-відповідь
+    QJsonArray posInfoArray;
+    while (sqlQuery.next()) {
+        QJsonObject posInfo;
+        posInfo["pos_id"] = sqlQuery.value("pos_id").toInt();
+        posInfo["factorynumber"] = sqlQuery.value("factorynumber").toString();
+        posInfo["regnumber"] = sqlQuery.value("regnumber").toString();
+
+        if (!sqlQuery.value("pos_version").isNull()) {
+            posInfo["pos_version"] = sqlQuery.value("pos_version").toString();
+        }
+        if (!sqlQuery.value("db_version").isNull()) {
+            posInfo["db_version"] = sqlQuery.value("db_version").toString();
+        }
+        if (!sqlQuery.value("posterm_version").isNull()) {
+            posInfo["posterm_version"] = sqlQuery.value("posterm_version").toString();
+        }
+
+        posInfoArray.append(posInfo);
+    }
+
+    // 🔹 Формуємо фінальну відповідь
+    QJsonObject response;
+    response["pos_info"] = posInfoArray;
+
+    return QHttpServerResponse("application/json", QJsonDocument(response).toJson());
+}
 
 
 /**
